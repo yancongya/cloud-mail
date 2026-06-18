@@ -937,7 +937,6 @@ const tgMsgTextOption = [{label: t('show'), value: 'show'}, {label: t('hide'), v
 const tgMsgLabelWidth = computed(() => locale.value === 'en' ? '120px' : '100px');
 
 getSettings()
-getUpdate()
 
 function getSettings() {
   settingReady.value = false
@@ -1016,6 +1015,10 @@ function getUpdate() {
     hasUpdate.value = data.name !== currentVersion
     getUpdateErrorCount = 0
   }).catch(e => {
+    if (e.response?.status === 403) {
+      getUpdateErrorCount = 0
+      return
+    }
     getUpdateErrorCount++
     setTimeout(() => {
       getUpdate()
