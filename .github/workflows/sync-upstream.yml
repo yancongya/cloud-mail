@@ -1,0 +1,81 @@
+name: 定时同步 cloud-mail 上游
+
+on:
+  schedule:
+    # 每周一北京时间 10:17（GitHub Actions 使用 UTC）
+    - cron: '17 2 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: cloud-mail-upstream-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: 同步 maillab/cloud-mail
+    runs-on: ubuntu-latest
+    outputs:
+      updated: ${{ steps.merge.outputs.updated }}
+    steps:
+      - name: 检出 fork 的 main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: 配置同步身份
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: 拉取并合并上游 main
+        id: merge
+        run: |
+          git remote add upstream https://github.com/maillab/cloud-mail.git
+          git fetch upstream main
+
+          if git merge-base --is-ancestor upstream/main HEAD; then
+            echo "updated=false" >> "$GITHUB_OUTPUT"
+            echo "上游没有新提交，无需同步。" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          if ! git merge --no-edit upstream/main; then
+            conflicts=$(git diff --name-only --diff-filter=U | tr '\n' ', ')
+            git merge --abort || true
+            echo "::error::上游合并遇到冲突，已停止并保留 main。冲突文件：${conflicts:-无法自动合并}"
+            exit 1
+          fi
+
+          git push origin HEAD:main
+          echo "updated=true" >> "$GITHUB_OUTPUT"
+          echo "已将上游更新合并到 fork 的 main。" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 有新代码时触发 Cloudflare 部署
+        if: steps.merge.outputs.updated == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || vars.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
+          DOMAIN: ${{ secrets.DOMAIN || vars.DOMAIN }}
+          ADMIN: ${{ secrets.ADMIN || vars.ADMIN }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET || vars.JWT_SECRET }}
+        run: |
+          missing=()
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID DOMAIN ADMIN JWT_SECRET; do
+            if [[ -z "${!name}" ]]; then
+              missing+=("$name")
+            fi
+          done
+
+          if (( ${#missing[@]} > 0 )); then
+            echo "代码已同步；暂未部署。请配置仓库 Secrets 或 Variables：${missing[*]}。" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          gh workflow run deploy-cloudflare.yml --repo "$GITHUB_REPOSITORY" --ref main
+          echo "已提交 Cloudflare 部署工作流。" >> "$GITHUB_STEP_SUMMARY"

@@ -1,38 +1,27 @@
-## Github Action 部署
+# GitHub Actions 部署与上游同步
 
-**配置 Github 仓库**
+## 首次配置
 
-1. Fork 或克隆仓库 [https://github.com/eoao/cloud-mail](https://github.com/eoao/cloud-mail)
-2. 进入您的 GitHub 仓库设置
-3. 转到 Settings → Secrets and variables → Actions → New Repository secrets
-4. 添加以下 Secrets：
+在仓库 Settings → Secrets and variables → Actions 中配置必需项。密钥应使用 Repository secrets；非敏感设置也可使用 Variables。
 
-| Secret 名称             | 必需 | 用途                                                  |
-| ----------------------- | :--: | ----------------------------------------------------- |
-| `CLOUDFLARE_API_TOKEN`  |  ✅  | Cloudflare API 令牌（需要 Workers 和相关资源权限）    |
-| `CLOUDFLARE_ACCOUNT_ID` |  ✅  | Cloudflare 账户 ID                                    |
-| `D1_DATABASE_ID`        |  ✅  | 您的 D1 数据库的 ID                                     |
-| `KV_NAMESPACE_ID`       |  ✅  | 您的 KV 命名空间的 ID                                   |
-| `R2_BUCKET_NAME`        |  ✅  | 您的 R2 存储桶的名称                                    |
-| `DOMAIN`                |  ✅  | 您要用于邮件服务的域名（例如 `["xx.xx"]，多域名用,分隔`）        |
-| `ADMIN`                 |  ✅  | 您的管理员邮箱地址（例如 `admin@example.com`）      |
-| `JWT_SECRET`            |  ✅  | 用于生成和验证 JWT 的随机长字符串                     |
-| `INIT_URL`              |  ❌  | （可选）部署后用于初始化数据库的 Worker URL（格式参考下述手动初始化）           |
+| 名称 | 用途 |
+| --- | --- |
+| `CLOUDFLARE_API_TOKEN` | 部署 Worker、管理所需资源 |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare 账户 |
+| `DOMAIN` | 邮件域名 JSON 数组，例如 `["example.com"]` |
+| `ADMIN` | 管理员邮箱 |
+| `JWT_SECRET` | JWT 签名密钥 |
 
----
+`D1_DATABASE_ID` 和 `KV_NAMESPACE_ID` 可选；未提供时工作流会按项目名称查找或创建资源。`CUSTOM_DOMAIN`、`R2_BUCKET_NAME`、`PROJECT_LINK`、`AI_MODEL`、`CF_EMAIL`、`ANALYSIS_CACHE` 以及 LinuxDo OAuth 设置按需配置。不要把密钥提交到仓库文件。
 
-**获取 Cloudflare API 令牌**
+## 自动同步与部署
 
-1. 访问 [Cloudflare Dashboard](https://dash.cloudflare.com/profile/api-tokens)
-2. 创建新的 API 令牌
-3. 选择"编辑 Cloudflare Workers"模板，并参照下表添加相应权限
-   ![dc2e1dc8dcd217644759c46c6c705de1](https://i.miji.bid/2025/07/07/dc2e1dc8dcd217644759c46c6c705de1.png)
-4. 保存令牌并复制到 GitHub Secrets 中的 `CLOUDFLARE_API_TOKEN`
+`sync-upstream.yml` 每周一北京时间 10:17 检查 `maillab/cloud-mail` 的 `main`。有新提交且能够干净合并时，工作流会合并到本仓库 `main`，然后触发 `deploy-cloudflare.yml`。
 
-**获取 Cloudflare 账户 ID**
-1. 账户 ID 可以在 Cloudflare 仪表盘的账户设置中找到。
-2. 复制到 GitHub Secrets 中的 `CLOUDFLARE_ACCOUNT_ID`
+如果上游更新和本仓库定制配置发生冲突，同步会停止，不会强制覆盖 `main`。请在 GitHub Actions 中查看失败日志，解决冲突后重新运行 `Sync upstream` 工作流。
 
-**运行工作流**
-1. 然后在Action页面手动运行工作流，后续同步上游后会自动部署到 Cloudflare Workers。如未配置 `INIT_URL`，则需要手动访问 `https://你的项目域名/api/init/你的jwt_secret` 进行数据库初始化。
-2. 自动同步上游可使用bot或者手动点击Sync Upstream按钮。
+若部署所需的 Cloudflare 配置未齐全，代码仍会同步，但部署步骤会跳过并在 Actions 摘要中列出缺少的设置名称。配置完成后，可从 Actions 手动运行 `Deploy cloud-mail to Cloudflare Workers`。
+
+## 手动部署
+
+在 GitHub 仓库的 Actions 页面手动运行 `Deploy cloud-mail to Cloudflare Workers`。普通代码更新也会触发该工作流。

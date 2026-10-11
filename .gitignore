@@ -25,5 +25,6 @@ mail-vue/node_modules
 mail-vue/dist
 .wrangler
 .venv
+git-tools.js
 _cloudflare-online-backup/
 _generated-from-dash-template/
