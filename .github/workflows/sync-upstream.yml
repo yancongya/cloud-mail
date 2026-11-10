@@ -9,9 +9,6 @@ on:
 permissions:
   contents: write
   actions: write
-  # 上游若修改 .github/workflows/*，合并后的推送需要此权限，
-  # 否则 GitHub 会以 "without `workflows` permission" 拒绝推送。
-  workflows: write
 
 concurrency:
   group: cloud-mail-upstream-sync
@@ -47,7 +44,26 @@ jobs:
             exit 0
           fi
 
-          if ! git merge --no-edit upstream/main; then
+          fork_head=$(git rev-parse HEAD)
+
+          # 以 upstream/main 为基底构造合并内容，但 .github/workflows/ 保留 fork 自己的版本。
+          # 原因有二：
+          #   1) GITHUB_TOKEN 没有 workflows 权限，若推送内容包含 .github/workflows/ 变更，
+          #      GitHub 会直接拒绝推送（"without `workflows` permission"）；
+          #   2) deploy-cloudflare.yml 含 fork 定制的部署配置闸门，不应被上游覆盖。
+          git checkout -B sync-tmp upstream/main
+          git checkout "$fork_head" -- .github/workflows/
+          # 上游新增的 workflow 文件同样不引入（以 fork_head 为基准，
+          # 只会命中上游有、fork 没有的文件，不会误删 fork 自有的 sync-upstream.yml）
+          git diff --name-only --diff-filter=A "$fork_head" upstream/main -- .github/workflows/ \
+            | while IFS= read -r f; do
+                [ -n "$f" ] && git rm -f -- "$f"
+              done
+          git add .github/workflows/
+          git commit --allow-empty -m "sync: keep fork .github/workflows"
+
+          git checkout -B main "$fork_head"
+          if ! git merge --no-edit sync-tmp; then
             conflicts=$(git diff --name-only --diff-filter=U | tr '\n' ', ')
             git merge --abort || true
             echo "::error::上游合并遇到冲突，已停止并保留 main。冲突文件：${conflicts:-无法自动合并}"
